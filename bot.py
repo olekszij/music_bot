@@ -42,7 +42,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f'Ошибка: {e}')
 
 app = Application.builder().token(BOT_TOKEN).build()
-app.add_handler(MessageHandler(filters.AUDIO | filters.Document.AUDIO, handle_audio))
+app.add_handler(MessageHandler(filters.AUDIO | filters.Document.AUDIO, handle_audio)) 
 
 print('Бот запущен...')
 app.run_polling()
