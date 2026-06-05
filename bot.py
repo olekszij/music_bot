@@ -12,7 +12,7 @@ GROQ_TOKEN = os.environ['GROQ_TOKEN']
 DOWNLOAD_DIR = '/tmp/music_bot_downloads'
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-genius = lyricsgenius.Genius(GENIUS_TOKEN)
+genius = lyricsgenius.Genius(GENIUS_TOKEN, timeout=10)
 groq_client = Groq(api_key=GROQ_TOKEN)
 
 def clean_lyrics(lyrics):
@@ -20,10 +20,10 @@ def clean_lyrics(lyrics):
     lyrics = re.sub(r'See.*?LiveGet tickets.*?\n', '', lyrics)
     return lyrics.strip()
 
-async def search_lyrics(msg, artist, title):
-    await msg.edit_text(f'⏳ Searching: {artist} — {title}...')
+async def search_lyrics(msg, query):
+    await msg.edit_text(f'⏳ Searching: {query}...')
     try:
-        results = genius.search_songs(f'{artist} {title}')['hits'][:3]
+        results = genius.search_songs(query)['hits'][:3]
         if not results:
             await msg.edit_text('❌ Nothing found')
             return
@@ -50,9 +50,6 @@ async def search_lyrics(msg, artist, title):
 async def handle_song_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    if not query.data.startswith('song_'):
-        return
 
     song_id = int(query.data.replace('song_', ''))
     await query.edit_message_text('⏳ Loading lyrics...')
@@ -89,7 +86,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text('❌ No tags found in file')
         return
 
-    await search_lyrics(msg, artist, title)
+    await search_lyrics(msg, f'{artist} {title}')
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     voice = update.message.voice
@@ -108,22 +105,14 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(input_path)
 
     text = transcription.text.strip()
-
-    if ' ' in text:
-        parts = text.split(' ', 1)
-        artist, title = parts[0], parts[1]
-        context.user_data['artist'] = artist
-        context.user_data['title'] = title
-    else:
-        await msg.edit_text('❌ Could not parse. Say: "Artist Title"')
-        return
+    context.user_data['query'] = text
 
     keyboard = [[
         InlineKeyboardButton("✅ Yes", callback_data='confirm_yes'),
         InlineKeyboardButton("❌ No, retry", callback_data='confirm_no')
     ]]
     await msg.edit_text(
-        f'🎤 Heard: "{text}"\nSearch lyrics for *{artist} — {title}*?',
+        f'🎤 Heard: *"{text}"*\nSearch lyrics?',
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode='Markdown'
     )
@@ -133,24 +122,15 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == 'confirm_yes':
-        artist = context.user_data.get('artist')
-        title = context.user_data.get('title')
-        await search_lyrics(query.message, artist, title)
+        q = context.user_data.get('query')
+        await search_lyrics(query.message, q)
     elif query.data == 'confirm_no':
         await query.edit_message_text('🎤 Send another voice message')
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-
-    if ' ' not in text:
-        await update.message.reply_text('❌ Send: Artist Title\nExample: Oasis Wonderwall')
-        return
-
-    parts = text.split(' ', 1)
-    artist, title = parts[0], parts[1]
-
-    msg = await update.message.reply_text(f'⏳ Searching: {artist} — {title}...')
-    await search_lyrics(msg, artist, title)
+    msg = await update.message.reply_text(f'⏳ Searching: {text}...')
+    await search_lyrics(msg, text)
 
 app = Application.builder().token(BOT_TOKEN).build()
 app.add_handler(MessageHandler(filters.AUDIO | filters.Document.AUDIO, handle_audio))
