@@ -1,7 +1,7 @@
 import os
 from mutagen import File as MutagenFile
-from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 import lyricsgenius
 from groq import Groq
 
@@ -66,20 +66,41 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.remove(input_path)
 
     text = transcription.text.strip()
-    await msg.edit_text(f'🎤 Heard: "{text}"\n⏳ Searching lyrics...')
 
     if ' ' in text:
         parts = text.split(' ', 1)
         artist, title = parts[0], parts[1]
+        context.user_data['artist'] = artist
+        context.user_data['title'] = title
     else:
-        await msg.edit_text('❌ Could not parse artist and title. Say: "Artist Title"')
+        await msg.edit_text('❌ Could not parse. Say: "Artist Title"')
         return
 
-    await search_lyrics(msg, artist, title)
+    keyboard = [[
+        InlineKeyboardButton("✅ Yes", callback_data='confirm_yes'),
+        InlineKeyboardButton("❌ No, retry", callback_data='confirm_no')
+    ]]
+    await msg.edit_text(
+        f'🎤 Heard: "{text}"\nSearch lyrics for *{artist} — {title}*?',
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode='Markdown'
+    )
+
+async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'confirm_yes':
+        artist = context.user_data.get('artist')
+        title = context.user_data.get('title')
+        await search_lyrics(query.message, artist, title)
+    else:
+        await query.edit_message_text('🎤 Send another voice message')
 
 app = Application.builder().token(BOT_TOKEN).build()
 app.add_handler(MessageHandler(filters.AUDIO | filters.Document.AUDIO, handle_audio))
 app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+app.add_handler(CallbackQueryHandler(handle_confirm))
 
 print('Bot started...')
 app.run_polling()

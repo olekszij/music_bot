@@ -1,5 +1,7 @@
 # 🎵 mp3ToLyrics Bot
 
+![logo](cassete.png)
+
 A Telegram bot that receives an audio file and returns the song lyrics.
 
 ## How it works
