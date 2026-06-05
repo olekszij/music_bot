@@ -97,10 +97,24 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text('🎤 Send another voice message')
 
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+
+    if ' ' not in text:
+        await update.message.reply_text('❌ Send: Artist Title\nExample: Oasis Wonderwall')
+        return
+
+    parts = text.split(' ', 1)
+    artist, title = parts[0], parts[1]
+
+    msg = await update.message.reply_text(f'⏳ Searching: {artist} — {title}...')
+    await search_lyrics(msg, artist, title)
+
 app = Application.builder().token(BOT_TOKEN).build()
 app.add_handler(MessageHandler(filters.AUDIO | filters.Document.AUDIO, handle_audio))
 app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 app.add_handler(CallbackQueryHandler(handle_confirm))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
 print('Bot started...')
 app.run_polling()

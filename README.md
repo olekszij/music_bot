@@ -1,15 +1,16 @@
 # 🎵 mp3ToLyrics Bot
 
-![logo](cassete.png)
+![logo](assets/cassete.png)
 
-A Telegram bot that receives an audio file and returns the song lyrics.
+A Telegram bot that finds lyrics for your music. Send a file, type a song name, or record a voice message.
 
 ## How it works
 
-1. Send the bot an audio file (MP3, FLAC, M4A, WAV)
-2. Bot reads the file tags (artist, title)
-3. Searches for lyrics on Genius
-4. Returns the lyrics directly in chat
+**Audio file** — send MP3, FLAC, M4A or WAV → bot reads tags → returns lyrics
+
+**Text** — type `Artist Title` (e.g. `Oasis Wonderwall`) → returns lyrics
+
+**Voice** — record a voice message saying the artist and title → bot transcribes via Whisper → confirms → returns lyrics
 
 ## Stack
 
@@ -17,6 +18,7 @@ A Telegram bot that receives an audio file and returns the song lyrics.
 - python-telegram-bot
 - lyricsgenius
 - mutagen
+- groq (Whisper voice transcription)
 
 ## Deploy on Railway
 
@@ -25,6 +27,7 @@ A Telegram bot that receives an audio file and returns the song lyrics.
 3. Add environment variables:
    - `BOT_TOKEN` — token from @BotFather
    - `GENIUS_TOKEN` — token from genius.com/api-clients
+   - `GROQ_TOKEN` — token from console.groq.com
 
 ## Local run
 
