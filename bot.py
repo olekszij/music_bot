@@ -12,25 +12,30 @@ GROQ_TOKEN = os.environ['GROQ_TOKEN']
 DOWNLOAD_DIR = '/tmp/music_bot_downloads'
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-genius = lyricsgenius.Genius(GENIUS_TOKEN, timeout=10)
+genius = lyricsgenius.Genius(GENIUS_TOKEN, timeout=15, retries=1, sleep_time=0)
 groq_client = Groq(api_key=GROQ_TOKEN)
 
 def clean_lyrics(lyrics):
-    lyrics = re.sub(r'^\d+\s*Embed$', '', lyrics, flags=re.MULTILINE)
+    lyrics = re.sub(r'\d+Embed$', '', lyrics)
     lyrics = re.sub(r'See.*?LiveGet tickets.*?\n', '', lyrics)
     return lyrics.strip()
 
 async def search_lyrics(msg, query):
-    await msg.edit_text(f'⏳ Searching: {query}...')
     try:
-        results = genius.search_songs(query)['hits'][:3]
-        if not results:
+        results = genius.search_songs(query)
+        if not results or 'hits' not in results or not results['hits']:
             await msg.edit_text('❌ Nothing found')
             return
 
-        if len(results) == 1:
-            r = results[0]['result']
+        hits = results['hits'][:3]
+
+        if len(hits) == 1:
+            r = hits[0]['result']
+            await msg.edit_text(f"⏳ Loading: {r['primary_artist']['name']} — {r['title']}...")
             song = genius.search_song(r['title'], r['primary_artist']['name'])
+            if not song:
+                await msg.edit_text('❌ Lyrics not found')
+                return
             lyrics = clean_lyrics(song.lyrics)
             await msg.edit_text(f"🎵 {r['primary_artist']['name']} — {r['title']}\n\n{lyrics[:4000]}")
             return
@@ -40,7 +45,7 @@ async def search_lyrics(msg, query):
                 f"{r['result']['primary_artist']['name']} — {r['result']['title']}",
                 callback_data=f"song_{r['result']['id']}"
             )
-        ] for r in results]
+        ] for r in hits]
 
         await msg.edit_text('Which one?', reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -86,6 +91,7 @@ async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text('❌ No tags found in file')
         return
 
+    await msg.edit_text(f'🔍 Searching: {artist} — {title}...')
     await search_lyrics(msg, f'{artist} {title}')
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
