@@ -1,4 +1,5 @@
 import os
+import re
 from mutagen import File as MutagenFile
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -14,16 +15,57 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 genius = lyricsgenius.Genius(GENIUS_TOKEN)
 groq_client = Groq(api_key=GROQ_TOKEN)
 
+def clean_lyrics(lyrics):
+    lyrics = re.sub(r'^\d+\s*Embed$', '', lyrics, flags=re.MULTILINE)
+    lyrics = re.sub(r'See.*?LiveGet tickets.*?\n', '', lyrics)
+    return lyrics.strip()
+
 async def search_lyrics(msg, artist, title):
-    await msg.edit_text(f'🎵 Found: {artist} — {title}\n⏳ Searching lyrics...')
+    await msg.edit_text(f'⏳ Searching: {artist} — {title}...')
     try:
-        song = genius.search_song(title, artist)
-        if song:
-            await msg.edit_text(f'🎵 {artist} — {title}\n\n{song.lyrics[:4000]}')
-        else:
-            await msg.edit_text('❌ Lyrics not found')
+        results = genius.search_songs(f'{artist} {title}')['hits'][:3]
+        if not results:
+            await msg.edit_text('❌ Nothing found')
+            return
+
+        if len(results) == 1:
+            r = results[0]['result']
+            song = genius.search_song(r['title'], r['primary_artist']['name'])
+            lyrics = clean_lyrics(song.lyrics)
+            await msg.edit_text(f"🎵 {r['primary_artist']['name']} — {r['title']}\n\n{lyrics[:4000]}")
+            return
+
+        keyboard = [[
+            InlineKeyboardButton(
+                f"{r['result']['primary_artist']['name']} — {r['result']['title']}",
+                callback_data=f"song_{r['result']['id']}"
+            )
+        ] for r in results]
+
+        await msg.edit_text('Which one?', reply_markup=InlineKeyboardMarkup(keyboard))
+
     except Exception as e:
         await msg.edit_text(f'❌ Error: {e}')
+
+async def handle_song_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if not query.data.startswith('song_'):
+        return
+
+    song_id = int(query.data.replace('song_', ''))
+    await query.edit_message_text('⏳ Loading lyrics...')
+
+    try:
+        song = genius.search_song(song_id=song_id)
+        if song:
+            lyrics = clean_lyrics(song.lyrics)
+            await query.edit_message_text(f'🎵 {song.artist} — {song.title}\n\n{lyrics[:4000]}')
+        else:
+            await query.edit_message_text('❌ Lyrics not found')
+    except Exception as e:
+        await query.edit_message_text(f'❌ Error: {e}')
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file = update.message.audio or update.message.document
@@ -94,7 +136,7 @@ async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         artist = context.user_data.get('artist')
         title = context.user_data.get('title')
         await search_lyrics(query.message, artist, title)
-    else:
+    elif query.data == 'confirm_no':
         await query.edit_message_text('🎤 Send another voice message')
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -113,7 +155,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = Application.builder().token(BOT_TOKEN).build()
 app.add_handler(MessageHandler(filters.AUDIO | filters.Document.AUDIO, handle_audio))
 app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-app.add_handler(CallbackQueryHandler(handle_confirm))
+app.add_handler(CallbackQueryHandler(handle_confirm, pattern='^confirm_'))
+app.add_handler(CallbackQueryHandler(handle_song_choice, pattern='^song_'))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
 print('Bot started...')
