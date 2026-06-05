@@ -14,6 +14,7 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 genius = lyricsgenius.Genius(GENIUS_TOKEN, timeout=15, retries=1, sleep_time=0)
 groq_client = Groq(api_key=GROQ_TOKEN)
+search_cache = {}
 
 def clean_lyrics(lyrics):
     lyrics = re.sub(r'\d+Embed$', '', lyrics)
@@ -31,7 +32,7 @@ async def search_lyrics(msg, query):
 
         if len(hits) == 1:
             r = hits[0]['result']
-            await msg.edit_text(f"⏳ Loading: {r['primary_artist']['name']} — {r['title']}...")
+            await msg.edit_text(f"⏳ Loading...")
             song = genius.search_song(r['title'], r['primary_artist']['name'])
             if not song:
                 await msg.edit_text('❌ Lyrics not found')
@@ -40,12 +41,15 @@ async def search_lyrics(msg, query):
             await msg.edit_text(f"🎵 {r['primary_artist']['name']} — {r['title']}\n\n{lyrics[:4000]}")
             return
 
+        msg_id = str(msg.message_id)
+        search_cache[msg_id] = {str(i): hits[i]['result'] for i in range(len(hits))}
+
         keyboard = [[
             InlineKeyboardButton(
-                f"{r['result']['primary_artist']['name']} — {r['result']['title']}",
-                callback_data=f"song_{r['result']['id']}"
+                f"{hits[i]['result']['primary_artist']['name']} — {hits[i]['result']['title']}",
+                callback_data=f"song_{msg_id}_{i}"
             )
-        ] for r in hits]
+        ] for i in range(len(hits))]
 
         await msg.edit_text('Which one?', reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -56,14 +60,20 @@ async def handle_song_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
 
-    song_id = int(query.data.replace('song_', ''))
-    await query.edit_message_text('⏳ Loading lyrics...')
+    parts = query.data.split('_')
+    msg_id, idx = parts[1], parts[2]
+    result = search_cache.get(msg_id, {}).get(idx)
 
+    if not result:
+        await query.edit_message_text('❌ Session expired, search again')
+        return
+
+    await query.edit_message_text('⏳ Loading lyrics...')
     try:
-        song = genius.search_song(song_id=song_id)
+        song = genius.search_song(result['title'], result['primary_artist']['name'])
         if song:
             lyrics = clean_lyrics(song.lyrics)
-            await query.edit_message_text(f'🎵 {song.artist} — {song.title}\n\n{lyrics[:4000]}')
+            await query.edit_message_text(f"🎵 {result['primary_artist']['name']} — {result['title']}\n\n{lyrics[:4000]}")
         else:
             await query.edit_message_text('❌ Lyrics not found')
     except Exception as e:
